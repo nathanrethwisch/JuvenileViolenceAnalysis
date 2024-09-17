@@ -1,5 +1,5 @@
 ---
-title: "Juvenile Detention Analysis"
+title: "Exploring Age and Sex Dynamics in Juvenile Violence Trends"
 author: "Nathan Rethwisch"
 date: "2024-05-07"
 output: html_document
