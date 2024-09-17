@@ -1,0 +1,481 @@
+---
+title: "Juvenile Detention Analysis"
+author: "Nathan Rethwisch"
+date: "2024-05-07"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+# Use echo = FALSE for Portfolio assignments
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r metadata, echo=FALSE}
+# Author:  Nathan Rethwisch
+# Date:    2024-05-07
+# Purpose: Analyze how sex and age affect proportion of violent crimes among those in juvenile detention
+#-------------------------------------------------------------------------------
+```
+
+```{r packages, warning = FALSE}
+suppressPackageStartupMessages(library("tidyverse")); theme_set(theme_bw())
+suppressPackageStartupMessages(library("knitr"))
+suppressPackageStartupMessages(library("flextable"))
+
+```
+
+The purpose of this document is to analyze how sex and age affect the
+proportion of juvenile offenders that were detained in a juvenile
+facility for violent crimes as opposed to nonviolent crimes. The
+document highlights where the data comes from, the procedure and results
+used to model the effect of sex and age on violence, and an overall
+discussion of the conclusions drawn from these results.
+
+## Introduction
+
+```{r dataCleaning, echo = FALSE, warning = FALSE, message = FALSE}
+#Reading the data and making violent crimes a count
+juvenile <- read_csv("IowaJuvenileData.csv")
+juvenile <- juvenile %>% mutate(violent = if_else(`Charge Type` == "VIOLENT", 1, 0))
+```
+
+Understanding trends among juvenile violence is important for assessing
+risk factors, creating new policy, and advocating for reform within the
+juvenile legal system. Therefore, in this study, we will take a further
+look at how age and sex are related to the proportion of juveniles in
+detention facilities that have committed violent crimes.
+
+This data comes from the Iowa government and highlights all juvenile
+delinquency placements from July 2003 through October 2020. The dataset
+includes information on the child's age when admitted, type of charge
+they were admitted on, the sex and race of the child, the facility they
+were kept at, the month and year of their release, and the number of
+days they were held. In total, there were `r nrow(juvenile)[1]` juvenile
+placement records in this database.
+
+More information on the dataset can be found at the [Iowa Data
+website.](https://data.iowa.gov/Juvenile-Detention/Iowa-Juvenile-Detention-Secure-Placements/3kck-gq3y/about_data)
+
+## Data
+
+```{r violentNonviolent, include = FALSE}
+#Getting seperate datasets for violent and nonviolent crimes
+violent    <- juvenile%>%filter(`Charge Type` == "VIOLENT")
+nonviolent <- juvenile%>%filter(`Charge Type` != "VIOLENT")
+```
+
+For this analysis, we want to focus on the proportion of crimes that
+were considered violent among those placed in a juvenile detention
+center. [According to Iowa
+Legislature](https://www.legis.iowa.gov/docs/code/915.10.pdf), a violent
+crime includes "a forcible felony, or any felony or aggravated
+misdemeanor which involved the actual or threatened infliction of
+physical or emotional injury on one or more persons." In this dataset,
+`r nrow(violent)[1]` of the `r nrow(juvenile)` juveniles were detained
+for violent crimes, meaning that
+`r round(nrow(violent)[1] / nrow(juvenile) * 100, digits = 2)`% of
+juveniles in detention centers are there for violent crimes. These
+mainly included arson, assault, kidnapping, murder, burglary/theft, and
+sex crimes. The table below gives a breakdown of violent crimes by what
+type of crime was committed:
+
+```{r subtype_counts, ft.align="left"}
+
+# Define the subtypes to be combined into "OtherRobbery"
+Burglary   <- c("BURGLARY", "ROBBERY", "THEFT")
+
+# Define the subtypes to be combined into "Other"
+Other      <- c("OTHER CRIMINAL", "OTHER PUB ORD", "OTHER VIOLENT")
+
+Murder     <- c("MURDER/MANSL.")
+Kidnapping <- c("KIDNAP")
+
+# Replace the specified subtypes with "OtherRobbery" and "Other"
+violent <- violent %>%
+  mutate(`Charge Subtype` = case_when(
+    `Charge Subtype` %in% Burglary ~ "Burglary/Robbery",
+    `Charge Subtype` %in% Other ~ "Other",
+    `Charge Subtype` %in% Murder ~ "Murder/Manslaughter",
+    `Charge Subtype` %in% Kidnapping ~ "Kidnapping",
+    TRUE ~ `Charge Subtype`
+  ))
+
+#Updating so subtypes aren't in all-caps
+violent$`Charge Subtype` <- str_to_title(violent$`Charge Subtype`)
+
+# Summarize counts for each subtype
+subtype_counts <- violent %>%
+  group_by (`Charge Subtype`) %>%
+  summarise(Count = n())%>%
+  mutate   (`Total Violent Crimes` = sum(Count),
+            Proportion = round(Count / `Total Violent Crimes` * 100, 1),
+            `Count (Proportion)`   = paste0(Count, " (", Proportion, "%)")) %>%
+  arrange  (desc(`Count`))%>%
+  select   (`Charge Subtype`, 
+            `Count (Proportion)`)
+
+#Creating a footer for the table
+footer <- data.frame(col_keys = c("Charge Subtype", "Count (Proportion)"), 
+                     unit     = c("Total", nrow(violent)[1]))
+
+
+# Outputting the flextable with the footer and other formatting
+ft_1 <- flextable(subtype_counts)
+ft_2 <- set_footer_df(ft_1, mapping = footer, key = "col_keys")
+ft_2 <- theme_booktabs(ft_2)
+ft_2 <- fix_border_issues(ft_2)
+ft_2 <- width(ft_2, width = 1.5)
+ft_2
+
+```
+
+```{r sexTable, message = FALSE}
+#Total offenders by seex
+allCrimesSex     <- juvenile %>% group_by (Sex)%>%
+                                 summarise(`Total Offenders`   = n())
+
+#Violent offenders by sex
+violentCrimesSex <- juvenile %>% group_by (Sex)%>%
+                                 filter   (`Charge Type`       == "VIOLENT")%>%
+                                 summarise(`Violent Offenders` = n())
+
+#Creating a table with proportion information
+sexTable <- allCrimesSex%>%left_join(violentCrimesSex)
+sexTable <- sexTable%>%
+      mutate(
+             `Proportion Who are Violent Offenders` = round(`Violent Offenders` / `Total Offenders`, digits = 2),
+              Proportion                            = round(`Total Offenders` / sum(`Total Offenders`) * 100, digits = 2),
+             `Total Offenders`                      = paste0(`Total Offenders`, " (", Proportion, "%)")
+            )%>%
+      select(Sex, `Total Offenders`, `Violent Offenders`, `Proportion Who are Violent Offenders`)
+```
+
+Furthermore, there were more males that were in juvenile detention
+centers in this dataset, with
+`r count(juvenile %>% filter(Sex == "MALE"))[[1]]` males and only
+`r count(juvenile %>% filter(Sex == "FEMALE"))[[1]]` females. The
+following table breaks down the number and proportion of violent crimes
+by gender:
+
+```{r outputSexTable}
+knitr::kable(sexTable, format = "markdown", row.names = FALSE, align = 'c')
+```
+
+Although there are far more males in the dataset, with
+`r round(table(juvenile$Sex)[2] / nrow(juvenile)[1] * 100, digits = 2)[[1]]`%
+of detained juveniles in Iowa being male, females were actually more
+likely to be detained on violent crimes, with `r sexTable[[1,4]] * 100`%
+of female juveniles committing violent crimes and
+`r sexTable[[2,4]] * 100`% of male juveniles committing violent crimes.
+
+```{r ageProp}
+#This wouldn't run inline so I had to run this in a chunk
+ageProp <- round(sum(table(violent$`Admission Age`)[7:9]) / nrow(violent)[1] * 100, digits = 2)
+```
+
+When looking at the ages, the bulk of admissions into juvenile detention
+centers seems to be between the ages of 15-17, with `r ageProp`% of
+juvenile offenders being between those ages. The following table breaks
+down the number and proportion of violent crimes by age:
+
+```{r ageTable, message = FALSE}
+#Total offenders by age
+allCrimesAge     <- juvenile %>% group_by (`Admission Age`)%>%
+                                 summarise(`Total Offenders`   = n())
+
+#Violent offenders by age
+violentCrimesAge <- juvenile %>% group_by (`Admission Age`)%>%
+                                 filter   (`Charge Type`       == "VIOLENT")%>%
+                                 summarise(`Violent Offenders` = n())
+
+#Creating a table with proportions of offenses
+AgeTable <- allCrimesAge%>%left_join(violentCrimesAge)
+AgeTable <- AgeTable%>%
+  mutate(
+         `Proportion Who are Violent Offenders` = round(`Violent Offenders` / `Total Offenders`, digits = 2),
+          Proportion                            = round(`Total Offenders` / sum(`Total Offenders`) * 100, digits = 2),
+         `Total Offenders`                      = paste0(`Total Offenders`, " (", Proportion, "%)")
+         )%>%
+  select(`Admission Age`, 
+         `Total Offenders`,
+         `Violent Offenders`, 
+         `Proportion Who are Violent Offenders`)
+```
+
+```{r outputAgeTable}
+knitr::kable(AgeTable, format = "markdown", row.names = FALSE, align = 'c')
+```
+
+Note that 18 and 19 year olds can be selected for juvenile detention if
+they are deemed "mentally immature," so this explains the few offenders
+in these age ranges. Interestingly, there seems to be a linear
+relationship between age and the proportion of juveniles who are violent
+offenders, with 100% of 9-year olds being sentenced for violent crimes,
+and decreasing proportions as the ages increase. This decrease
+intuitively makes sense because younger children are likely to be given
+lesser punishments as long as the crimes are nonviolent. The proportion
+slightly increases for 18 and 19 year-olds, but there are few total
+offenders due to most people this age being sentenced to adult detention
+centers.
+
+The figure below displays a scatterplot, with the proportion of violent
+crimes on the y-axis, and the age when admitted to the juvenile
+detention facility on the x-axis. Furthermore, the sex of the child is
+denoted by both the color and symbol. There were no female offenders in
+the dataset that were age 9 or 19, so this is why there are no points on
+the graph for those ages.
+
+```{r juvenile_grouped, message = FALSE}
+#Creating a grouping of all age-sex combos
+juvenile_grouped <- juvenile%>%group_by(Sex, `Admission Age`)%>%
+  summarise(number                   = n(),
+            violent                  = sum(violent == 1),
+            `Proportion of Violence` = violent / number)
+
+```
+
+```{r exploratory}
+#Scatterplot of Violent Offenes by Age/Sex
+ggplot(juvenile_grouped,
+       aes(
+         x     = `Admission Age`,
+         y     = `Proportion of Violence`,
+         color = Sex,
+         shape = Sex
+       )) +
+  geom_point(
+    position   = position_jitterdodge(
+      dodge.width  = 0.1,
+      jitter.width = 0.1
+    ),
+      size         = 2
+    ) +
+  labs(
+    x     = "Age When Admitted",
+    y     = "Proportion of Violent Offenses",
+    title = "Proportion of Violent Offenses Based on Age and Sex"
+  )
+```
+
+This plot shows that, in general, the proportion of violent offenders
+seems to decrease as age increases. However, it appears that sex has
+little to do with proportion of violent offenders. There is a deviation
+for 18-year olds, but this is likely due to a lack of data, as only
+there were only `r juvenile_grouped$number[20]` male offenders and
+`r juvenile_grouped$number[9]` female offenders.
+
+## Results
+
+```{r model-interaction}
+
+#Creating the models with and without an interaction term
+model <-  glm(violent ~ Sex + `Admission Age`, 
+              data   = juvenile, 
+              family = 'binomial')
+
+modelInteraction <- glm(violent ~ Sex + `Admission Age` + Sex:`Admission Age`, 
+                        data   = juvenile, 
+                        family = 'binomial')
+
+#Had to include this because it couldn't be computed inline
+interactionPvalue <- round(summary(modelInteraction)$coefficients[[4,4]], digits = 2)
+```
+
+Because we are trying to model the probability of something occurring, a
+logistic regression model is appropriate in this scenario. In this case,
+the response variable is the probability of a child in juvenile
+detention being there for a violent crime. The explanatory variables are
+sex and age when admitted. An interaction term between admission age and
+sex was considered, but was not included in the final model, because it
+was not found to be significant from a Wald test (P-value of
+`r round(summary(modelInteraction)$coefficients[[4,4]], digits = 2)`).
+
+The binomial model looks like this:
+$$\hat{p} = \frac{e^{B_0 + B_1X_1 + B_2X_2}}{1+e^{B_0 + B_1X_1 + B_2X_2}}$$where
+
+-   $\hat{p}$ is the predicted probability of the juvenile
+-   $B_0$ is the intercept
+-   $B_1$ is the coefficient associated with Sex
+-   $X_1$ is whether the observed juvenile is male (1) or female (0)
+-   $B_2$ is the coefficient associated with Age
+-   $X_2$ is the age of the observed juvenile
+
+After fitting our data, we get a model that looks like this:
+$$\hat{p} = \frac{e^{`r model$coefficients[[1]]` + `r model$coefficients[[2]]` * X_1 + `r model$coefficients[[3]]` * X_2}}{1 + e^{`r model$coefficients[[1]]` + `r model$coefficients[[2]]` * X_1 + `r model$coefficients[[3]]` * X_2}}$$.
+
+```{r confints, message = FALSE}
+Sex <- exp(confint(model))[2,]
+Age <- exp(confint(model))[2,]
+```
+
+After performing a Wald test on the model, we find that both sex and
+admission age are significant predictors for the proportion of violent
+offenders, given the other predictors in the model. From this, we can
+obtain a 95% confidence interval to see what impact sex and age may have
+on the proportion of offenders in juvenile detention that have committed
+a violent crime.
+
+A 95% confidence interval for the sex being female is
+(`r round(1 / Sex[2],3)`, `r round(1 / Sex[1],3)`). This means that we are
+95% confident that the odds of a female being a violent offender given
+they are in juvenile detention are between `r round(1 / Sex[2],3)` and
+`r round(1 / Sex[1],3)` times the odds of a male being a violent offender.
+
+A 95% confidence interval for the admission age is
+(`r round(Age[1], 3)`, `r round(Age[2], 3)`). This means that we can be
+95% confident that the odds of a one-year increase in age is associated
+with between a $\frac{1}{`r round(Age[2], 3)`}$ = `r round(1 / Age[2], 3)`
+and $\frac{1}{`r round(Age[1],3)`}$ = `r round(1 / Age[1], 3)` times
+*decrease* in the odds of juvenile delinquent being a violent offender.
+
+The following plot shows the model's prediction for the proportion of
+children in juvenile detention that are there for a violent crime based
+on levels of admission age and sex as a line, with an associated 95%
+confidence interval. Because there are so many observations in this
+data, we have chosen to have the plotted points represent average
+proportions among the unique combinations of age and sex.
+
+
+```{r predictions}
+#Expit function for later confidence intervals
+expit <- function(x) {
+  1 / (1 + exp(-x))
+}
+
+#Creating a grid for predictions
+nd    <- expand.grid(
+                    Sex             = unique(juvenile$Sex),
+                    `Admission Age` = unique(juvenile$`Admission Age`)
+                    )%>%
+             arrange(desc(Sex), `Admission Age`)
+```
+
+```{r graphing}
+#Predictions based on the model
+p <- bind_cols(
+  nd,
+  predict(model,
+          newdata = nd,
+          se.fit  = TRUE)%>%
+      as.data.frame() %>%
+      
+      # Manually construct confidence intervals
+      mutate(
+        lwr = fit - qnorm(0.975) * se.fit,
+        upr = fit + qnorm(0.975) * se.fit,
+        
+        # Expit to get to response scale
+        Violent    = expit(fit),
+        lwr        = expit(lwr),
+        upr        = expit(upr)
+      ) 
+  )
+
+#Ensures the coloring for Sex remains consistent among all plotting methods
+p$Sex <- factor(p$Sex, levels = c("FEMALE", "MALE"))
+
+
+g <- ggplot(juvenile_grouped, 
+         aes(x     = `Admission Age`,
+             y     = `Proportion of Violence`,
+             color = Sex,
+             shape = Sex
+             )) +
+  geom_point(
+      position = position_jitter(
+            height = 0.1
+            )) 
+
+#Adding line for predicted probabilities
+gm <- g +
+  geom_line(
+    data     = p,
+    mapping  = aes(
+      y      = Violent)) +
+  labs(
+    x        = "Admission Age (Years)",
+    y        = "Proportion of Juveniles that Are Detained for Violent Crimes",
+    title    = "Predicted Proportion of Violent Crimes Based on Admission Age and Sex",
+    subtitle = "Logistic Regression Model with 95% Confident Intervals"
+  )
+
+
+#Adding pointrange for confidnece interval
+g1 <- gm + geom_ribbon(
+  data    = p,
+  mapping = aes(
+    y     = Violent,
+    ymin  = lwr,
+    ymax  = upr,
+    fill  = Sex
+  ),
+  color   = NA,
+  alpha   = 0.2
+)
+
+g1
+```
+
+From this plot, we can tell that females are predicted to have a
+slightly higher proportion of being detained for violent crimes and age
+is related to a decrease in the proportion of being admitted for violent
+crimes.
+
+All of this information leads to the conclusion that males have a lower
+proportion of children in juvenile detention for violent crimes than
+females. Furthermore, as age increases, the proportion of children in
+juvenile detention for violent crimes decrease. It is important to note
+that a decreased proportion does not equate to a decrease in the overall
+count of children in juvenile detention for violent crimes, as older
+males have a higher number of violent crimes, but a lower proportion.
+
+## Discussion
+
+This analysis was to ascertain the effect of sex and age on the
+proportion of juveniles that were sent to a detention facility for
+violent crimes. The data used for this analysis was all juvenile
+detention admissions in the state of Iowa from July 2003 through October
+2020, taken from [Iowa's government
+website](https://data.iowa.gov/Juvenile-Detention/Iowa-Juvenile-Detention-Secure-Placements/3kck-gq3y/about_data).
+After fitting a logistic regression model, we found that females have a
+higher proportion of violent admissions than males and that the
+proportion of admitted children who committed violent crimes decreases
+with age.
+
+Some of the assumptions of using a logistic regression model were
+challenged in this analysis. One assumption is that observations have a
+binomial distribution, each with its own mean. The graph in the
+*Results* sections proves this assumption. It shows that the expected
+proportions from a binomial distribution are close to the actual
+proportions of violent offenders. Thus, this assumption is satisfied.
+However, observations violate the assumption of independence. Children
+can be double-counted in the admission data if they are transferred to
+multiple different juvenile detention facilities. This means that
+juveniles that committed violent crimes may be over-represented because
+violent offenders are likely to be in the detention system for longer
+thus having a better chance of being moved around. Another assumption of
+logistic regression is that the relationship between the probability of
+success (in this case the probability of a offender being violent) and
+explanatory variables is through the logit function. One way to show
+this relation is linear to so prove that interaction terms are not
+useful in this model. As previously stated, a Wald test reported a
+p-value of
+`r round(summary(modelInteraction)$coefficients[[4,4]],digits = 2)`,
+meaning that the relationship is truly linear and this assumption is
+met.
+
+There are some further limitations to the study, however. First, data is
+less widely available for the tail end of juvenile age, so claims about
+extremely young or old offenders are limited. Second, there were some
+manual entry errors noted in the data for things like years, and it can
+be assumed that there were some manual entry errors for variables of
+interest. However, because of the mass quantity of the data it is
+unlikely that these few errors would have a major impact on the
+conclusions in this report. Finally, we note that this data can only be
+applied to juveniles in Iowa, as this is where the data comes from. Therefore, the
+conclusion from this report is that among children in Iowa housed at
+juvenile detention facilities, the proportion that committed violent
+crimes is higher among females and decreases as a child grows older.
