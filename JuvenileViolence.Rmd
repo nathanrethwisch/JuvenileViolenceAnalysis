@@ -133,7 +133,7 @@ ft_2
 ```
 
 ```{r sexTable, message = FALSE}
-#Total offenders by seex
+#Total offenders by sex
 allCrimesSex     <- juvenile %>% group_by (Sex)%>%
                                  summarise(`Total Offenders`   = n())
 
@@ -386,8 +386,9 @@ g <- ggplot(juvenile_grouped,
              )) +
   geom_point(
       position = position_jitter(
-            height = 0.1
+            width = 0.1
             )) 
+
 
 #Adding line for predicted probabilities
 gm <- g +
